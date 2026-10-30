@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Información para pacientes - Clinical_Data</title>
+    <link rel="stylesheet" href="assets/estilos.css">
+</head>
+<body>
+    <!-- Esta es la página a la que lleva el código QR. No pide usuario. -->
+    <header class="encabezado"><div id="logo-encabezado"></div></header>
+
+    <main>
+        <h1>Información para pacientes</h1>
+        <p class="intro-publica">Acá puede consultar la información que antes se entregaba impresa en el Hospital de Clínicas. Toque "Ver documento" para abrirlo.</p>
+
+        <div id="zona-documentos"><p>Cargando...</p></div>
+
+        <h2>Encuesta de satisfacción</h2>
+        <div id="zona-encuesta"><p>Cargando...</p></div>
+    </main>
+
+    <footer class="pie">Clinical_Data &middot; Hospital de Clínicas</footer>
+
+    <script src="assets/comun.js"></script>
+    <script>
+        logoChico("logo-encabezado");
+        var encuesta = null;
+
+        async function cargarDocumentos() {
+            var zona = document.getElementById("zona-documentos");
+            try {
+                var lista = (await pedir("documentos.php?accion=listar")).documentos;
+                if (lista.length == 0) {
+                    zona.innerHTML = "<p>No hay documentación disponible por el momento.</p>";
+                    return;
+                }
+                // la lista viene ordenada por categoría: se escribe un título cada vez que cambia
+                var html = "";
+                var categoriaActual = "";
+                lista.forEach(function (d) {
+                    if (d.categoria != categoriaActual) {
+                        if (categoriaActual != "") html += "</div>";
+                        html += "<h2>" + esc(d.categoria) + '</h2><div class="lista-documentos">';
+                        categoriaActual = d.categoria;
+                    }
+                    html += '<div class="tarjeta-documento"><div><h3>' + esc(d.titulo) + "</h3><p>" + esc(d.descripcion) + "</p></div>" +
+                        '<a class="boton-documento" target="_blank" href="documentos.php?accion=ver&id=' + d.id_documento + '">Ver documento</a></div>';
+                });
+                zona.innerHTML = html + "</div>";
+            } catch (error) {
+                zona.innerHTML = "<p>No se pudo cargar la documentación. Intente nuevamente.</p>";
+            }
+        }
+
+        async function cargarEncuesta() {
+            var zona = document.getElementById("zona-encuesta");
+            try {
+                encuesta = (await pedir("documentos.php?accion=encuesta_publica")).encuesta;
+                if (!encuesta) {
+                    zona.innerHTML = "<p>En este momento no hay encuestas disponibles.</p>";
+                    return;
+                }
+                var html = '<p class="intro-publica"><strong>' + esc(encuesta.titulo) + "</strong><br>" + esc(encuesta.descripcion) +
+                    ' La encuesta es anónima.</p><form class="seccion" id="form-encuesta">';
+                encuesta.preguntas.forEach(function (p) {
+                    html += '<div class="pregunta-formulario"><label>' + esc(p.texto) + "</label>";
+                    if (p.tipo == "cerrada") {
+                        html += '<select data-pregunta="' + p.id_pregunta + '" data-tipo="cerrada"><option value="">Sin responder</option>';
+                        p.opciones.forEach(function (o) {
+                            html += '<option value="' + o.id_opcion + '">' + esc(o.texto) + "</option>";
+                        });
+                        html += "</select>";
+                    } else {
+                        html += '<textarea data-pregunta="' + p.id_pregunta + '" data-tipo="abierta" rows="2"></textarea>';
+                    }
+                    html += "</div>";
+                });
+                zona.innerHTML = html + '<button type="submit" class="boton">Enviar respuestas</button></form>';
+                document.getElementById("form-encuesta").addEventListener("submit", enviarEncuesta);
+            } catch (error) {
+                zona.innerHTML = "<p>No se pudo cargar la encuesta. Intente nuevamente.</p>";
+            }
+        }
+
+        async function enviarEncuesta(evento) {
+            evento.preventDefault();
+            var respuestas = [];
+            document.querySelectorAll("[data-pregunta]").forEach(function (campo) {
+                if (campo.dataset.tipo == "cerrada") {
+                    respuestas.push({ id_pregunta: campo.dataset.pregunta, id_opcion: campo.value, texto_libre: "" });
+                } else {
+                    respuestas.push({ id_pregunta: campo.dataset.pregunta, id_opcion: "", texto_libre: campo.value });
+                }
+            });
+            try {
+                await enviar("documentos.php?accion=responder", { id_encuesta: encuesta.id_encuesta, respuestas: respuestas });
+                document.getElementById("zona-encuesta").innerHTML = '<p class="intro-publica"><strong>¡Gracias por su respuesta!</strong> Sus comentarios nos ayudan a mejorar.</p>';
+            } catch (error) {
+                alert(error.message);
+            }
+        }
+
+        cargarDocumentos();
+        cargarEncuesta();
+    </script>
+</body>
+</html>

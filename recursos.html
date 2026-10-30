@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Recursos - Clinical_Data</title>
+    <link rel="stylesheet" href="assets/estilos.css">
+</head>
+<body>
+    <div class="layout-privado">
+        <aside class="barra-lateral" id="barra-lateral"></aside>
+        <div class="contenido-principal">
+            <main>
+                <h1>Recursos de traslados</h1>
+                <div id="zona-mensaje"></div>
+
+                <div class="pestanas">
+                    <button class="pestana activa" id="boton-ambulancias" onclick="mostrar('ambulancias')">Ambulancias</button>
+                    <button class="pestana" id="boton-personal" onclick="mostrar('personal')">Personal</button>
+                    <button class="pestana" id="boton-rutas" onclick="mostrar('rutas')">Rutas</button>
+                </div>
+
+                <!-- AMBULANCIAS -->
+                <div id="seccion-ambulancias">
+                    <div class="seccion">
+                        <h2>Nueva ambulancia</h2>
+                        <form id="form-ambulancias">
+                            <div class="fila-form">
+                                <div><label>Patente</label><input type="text" id="a-patente" maxlength="20"></div>
+                                <div><label>Modelo</label><input type="text" id="a-modelo" maxlength="100"></div>
+                            </div>
+                            <button type="submit" class="boton">Guardar ambulancia</button>
+                        </form>
+                    </div>
+                    <table class="tabla">
+                        <thead><tr><th>Patente</th><th>Modelo</th><th>Estado</th><th></th></tr></thead>
+                        <tbody id="lista-ambulancias"></tbody>
+                    </table>
+                </div>
+
+                <!-- PERSONAL -->
+                <div id="seccion-personal" style="display:none;">
+                    <div class="seccion">
+                        <h2>Nueva persona</h2>
+                        <form id="form-personal">
+                            <div class="fila-form">
+                                <div><label>Nombre</label><input type="text" id="p-nombre" maxlength="100"></div>
+                                <div><label>Apellido</label><input type="text" id="p-apellido" maxlength="100"></div>
+                                <div><label>Documento</label><input type="text" id="p-documento" maxlength="20"></div>
+                                <div>
+                                    <label>Cargo</label>
+                                    <select id="p-cargo"><option>Conductor</option><option>Enfermera</option><option>Auxiliar</option></select>
+                                </div>
+                                <div><label>Teléfono</label><input type="tel" id="p-telefono" maxlength="20"></div>
+                            </div>
+                            <button type="submit" class="boton">Guardar persona</button>
+                        </form>
+                    </div>
+                    <table class="tabla">
+                        <thead><tr><th>Nombre</th><th>Documento</th><th>Cargo</th><th>Teléfono</th><th></th></tr></thead>
+                        <tbody id="lista-personal"></tbody>
+                    </table>
+                </div>
+
+                <!-- RUTAS -->
+                <div id="seccion-rutas" style="display:none;">
+                    <div class="seccion">
+                        <h2>Nueva ruta</h2>
+                        <form id="form-rutas">
+                            <div class="fila-form">
+                                <div><label>Nombre</label><input type="text" id="r-nombre" maxlength="150"></div>
+                                <div><label>Origen</label><input type="text" id="r-origen" maxlength="150" value="Hospital de Clínicas"></div>
+                                <div><label>Destino</label><input type="text" id="r-destino" maxlength="150"></div>
+                                <div><label>Distancia (km)</label><input type="number" id="r-km" step="0.1" min="0"></div>
+                                <div><label>Tiempo estimado (minutos)</label><input type="number" id="r-minutos" min="0"></div>
+                            </div>
+                            <button type="submit" class="boton">Guardar ruta</button>
+                        </form>
+                    </div>
+                    <table class="tabla">
+                        <thead><tr><th>Ruta</th><th>Origen → Destino</th><th>Distancia</th><th>Tiempo</th><th></th></tr></thead>
+                        <tbody id="lista-rutas"></tbody>
+                    </table>
+                </div>
+            </main>
+            <footer class="pie">Clinical_Data &middot; Hospital de Clínicas</footer>
+        </div>
+    </div>
+
+    <script src="assets/comun.js"></script>
+    <script>
+        // ---------- pestañas ----------
+        function mostrar(nombre) {
+            ["ambulancias", "personal", "rutas"].forEach(function (n) {
+                document.getElementById("seccion-" + n).style.display = (n == nombre) ? "block" : "none";
+                document.getElementById("boton-" + n).className = (n == nombre) ? "pestana activa" : "pestana";
+            });
+        }
+
+        // ---------- listas ----------
+        async function cargar() {
+            var d = await pedir("traslados.php?accion=recursos");
+
+            var html = "";
+            d.ambulancias.forEach(function (a) {
+                var boton = "";
+                if (a.estado == "Disponible") {
+                    boton = '<button class="enlace-editar" onclick="estadoAmbulancia(' + a.id_ambulancia + ', \'Mantenimiento\')">A mantenimiento</button>';
+                } else if (a.estado == "Mantenimiento") {
+                    boton = '<button class="enlace-editar" onclick="estadoAmbulancia(' + a.id_ambulancia + ', \'Disponible\')">Marcar disponible</button>';
+                }
+                html += "<tr><td>" + esc(a.patente) + "</td><td>" + esc(a.modelo) + "</td><td>" + etiquetaEstado(a.estado) +
+                    '</td><td class="acciones">' + boton +
+                    '<button class="enlace-eliminar" onclick="borrar(\'ambulancia_eliminar\', ' + a.id_ambulancia + ')">Eliminar</button></td></tr>';
+            });
+            document.getElementById("lista-ambulancias").innerHTML = html || '<tr><td colspan="4">No hay ambulancias.</td></tr>';
+
+            html = "";
+            d.personal.forEach(function (p) {
+                html += "<tr><td>" + esc(p.apellido) + ", " + esc(p.nombre) + "</td><td>" + esc(p.documento) + "</td><td>" + esc(p.cargo) +
+                    "</td><td>" + esc(p.telefono) + '</td><td><button class="enlace-eliminar" onclick="borrar(\'personal_eliminar\', ' + p.id_personal + ')">Eliminar</button></td></tr>';
+            });
+            document.getElementById("lista-personal").innerHTML = html || '<tr><td colspan="5">No hay personal.</td></tr>';
+
+            html = "";
+            d.rutas.forEach(function (r) {
+                html += "<tr><td>" + esc(r.nombre) + "</td><td>" + esc(r.origen) + " → " + esc(r.destino) + "</td><td>" + r.distancia_km +
+                    " km</td><td>" + r.tiempo_min + ' min</td><td><button class="enlace-eliminar" onclick="borrar(\'ruta_eliminar\', ' + r.id_ruta + ')">Eliminar</button></td></tr>';
+            });
+            document.getElementById("lista-rutas").innerHTML = html || '<tr><td colspan="5">No hay rutas.</td></tr>';
+        }
+
+        // ---------- acciones ----------
+        async function guardar(accion, datos, idFormulario) {
+            try {
+                var r = await enviar("traslados.php?accion=" + accion, datos);
+                avisar(r.mensaje);
+                document.getElementById(idFormulario).reset();
+                cargar();
+            } catch (error) {
+                avisar(error.message, "error");
+            }
+        }
+
+        async function borrar(accion, id) {
+            if (!confirm("¿Seguro que quiere eliminarlo?")) return;
+            try {
+                var r = await enviar("traslados.php?accion=" + accion, { id: id });
+                avisar(r.mensaje);
+                cargar();
+            } catch (error) {
+                avisar(error.message, "error");
+            }
+        }
+
+        async function estadoAmbulancia(id, estado) {
+            try {
+                var r = await enviar("traslados.php?accion=ambulancia_estado", { id: id, estado: estado });
+                avisar(r.mensaje);
+                cargar();
+            } catch (error) {
+                avisar(error.message, "error");
+            }
+        }
+
+        function valor(id) {
+            return document.getElementById(id).value;
+        }
+
+        document.getElementById("form-ambulancias").addEventListener("submit", function (e) {
+            e.preventDefault();
+            guardar("ambulancia_guardar", { patente: valor("a-patente"), modelo: valor("a-modelo") }, "form-ambulancias");
+        });
+
+        document.getElementById("form-personal").addEventListener("submit", function (e) {
+            e.preventDefault();
+            guardar("personal_guardar", {
+                nombre: valor("p-nombre"), apellido: valor("p-apellido"), documento: valor("p-documento"),
+                cargo: valor("p-cargo"), telefono: valor("p-telefono")
+            }, "form-personal");
+        });
+
+        document.getElementById("form-rutas").addEventListener("submit", function (e) {
+            e.preventDefault();
+            guardar("ruta_guardar", {
+                nombre: valor("r-nombre"), origen: valor("r-origen"), destino: valor("r-destino"),
+                distancia_km: valor("r-km"), tiempo_min: valor("r-minutos")
+            }, "form-rutas");
+        });
+
+        async function iniciar() {
+            if (!(await iniciarPagina())) return;
+            cargar();
+        }
+        iniciar();
+    </script>
+</body>
+</html>

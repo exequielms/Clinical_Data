@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Encuestas - Clinical_Data</title>
+    <link rel="stylesheet" href="assets/estilos.css">
+</head>
+<body>
+    <div class="layout-privado">
+        <aside class="barra-lateral" id="barra-lateral"></aside>
+        <div class="contenido-principal">
+            <main>
+                <h1>Encuestas de satisfacción</h1>
+                <div id="zona-mensaje"></div>
+
+                <div class="seccion" id="zona-resultados" style="display:none;"></div>
+
+                <h2>Encuestas</h2>
+                <table class="tabla">
+                    <thead><tr><th>Título</th><th>Estado</th><th>Respuestas</th><th>Creada</th><th></th></tr></thead>
+                    <tbody id="lista-encuestas"></tbody>
+                </table>
+
+                <div class="seccion">
+                    <h2>Nueva encuesta</h2>
+                    <form id="form-encuesta">
+                        <label for="titulo">Título</label>
+                        <input type="text" id="titulo" maxlength="200">
+                        <label for="descripcion">Descripción</label>
+                        <textarea id="descripcion" rows="2"></textarea>
+
+                        <div id="zona-preguntas"></div>
+
+                        <button type="button" class="boton boton-secundario" style="margin-left:0;" onclick="agregarPregunta()">+ Agregar pregunta</button>
+                        <button type="submit" class="boton">Guardar encuesta</button>
+                        <p class="aclaracion" style="margin-top:12px;">Los pacientes ven la última encuesta activa. Las respuestas son anónimas.</p>
+                    </form>
+                </div>
+            </main>
+            <footer class="pie">Clinical_Data &middot; Hospital de Clínicas</footer>
+        </div>
+    </div>
+
+    <script src="assets/comun.js"></script>
+    <script>
+        // las preguntas de la encuesta nueva viven en esta lista
+        var preguntas = [{ texto: "", tipo: "cerrada", opciones: "" }];
+
+        function dibujarPreguntas() {
+            var html = "";
+            preguntas.forEach(function (p, i) {
+                html += '<div class="pregunta-formulario">' +
+                    '<label>Pregunta ' + (i + 1) + '</label>' +
+                    '<input type="text" maxlength="300" value="' + esc(p.texto) + '" oninput="preguntas[' + i + '].texto = this.value">' +
+                    '<label>Tipo</label>' +
+                    '<select onchange="preguntas[' + i + '].tipo = this.value; dibujarPreguntas();">' +
+                    '<option value="cerrada"' + (p.tipo == "cerrada" ? " selected" : "") + '>Con opciones</option>' +
+                    '<option value="abierta"' + (p.tipo == "abierta" ? " selected" : "") + '>Respuesta libre</option></select>';
+                if (p.tipo == "cerrada") {
+                    html += '<label>Opciones (una por línea)</label>' +
+                        '<textarea rows="3" oninput="preguntas[' + i + '].opciones = this.value">' + esc(p.opciones) + '</textarea>';
+                }
+                html += '<button type="button" class="enlace-eliminar" onclick="quitarPregunta(' + i + ')">Quitar pregunta</button></div>';
+            });
+            document.getElementById("zona-preguntas").innerHTML = html;
+        }
+
+        function agregarPregunta() {
+            preguntas.push({ texto: "", tipo: "cerrada", opciones: "" });
+            dibujarPreguntas();
+        }
+
+        function quitarPregunta(i) {
+            preguntas.splice(i, 1);
+            dibujarPreguntas();
+        }
+
+        document.getElementById("form-encuesta").addEventListener("submit", async function (evento) {
+            evento.preventDefault();
+            var para_enviar = preguntas.map(function (p) {
+                return {
+                    texto: p.texto,
+                    tipo: p.tipo,
+                    opciones: p.tipo == "cerrada" ? p.opciones.split("\n") : []
+                };
+            });
+            try {
+                var r = await enviar("documentos.php?accion=encuesta_crear", {
+                    titulo: document.getElementById("titulo").value,
+                    descripcion: document.getElementById("descripcion").value,
+                    preguntas: para_enviar
+                });
+                avisar(r.mensaje);
+                document.getElementById("form-encuesta").reset();
+                preguntas = [{ texto: "", tipo: "cerrada", opciones: "" }];
+                dibujarPreguntas();
+                cargarEncuestas();
+            } catch (error) {
+                avisar(error.message, "error");
+            }
+        });
+
+        async function cargarEncuestas() {
+            var datos = await pedir("documentos.php?accion=encuestas_listar");
+            var html = "";
+            datos.encuestas.forEach(function (e) {
+                html += "<tr><td>" + esc(e.titulo) + "</td><td>" + etiquetaEstado(e.estado) + "</td><td>" + e.total_respuestas +
+                    "</td><td>" + fechaCorta(e.fecha_creacion) + '</td><td class="acciones">' +
+                    '<button class="enlace-editar" onclick="verResultados(' + e.id_encuesta + ')">Resultados</button>' +
+                    '<button class="enlace-editar" onclick="cambiarEstado(' + e.id_encuesta + ')">' + (e.estado == "Activa" ? "Desactivar" : "Activar") + '</button>' +
+                    '<button class="enlace-eliminar" onclick="eliminar(' + e.id_encuesta + ')">Eliminar</button></td></tr>';
+            });
+            if (html == "") {
+                html = '<tr><td colspan="5">Todavía no hay encuestas.</td></tr>';
+            }
+            document.getElementById("lista-encuestas").innerHTML = html;
+        }
+
+        async function cambiarEstado(id) {
+            try {
+                await enviar("documentos.php?accion=encuesta_estado", { id: id });
+                cargarEncuestas();
+            } catch (error) {
+                avisar(error.message, "error");
+            }
+        }
+
+        async function eliminar(id) {
+            if (!confirm("¿Eliminar la encuesta con todas sus respuestas?")) return;
+            try {
+                await enviar("documentos.php?accion=encuesta_eliminar", { id: id });
+                document.getElementById("zona-resultados").style.display = "none";
+                avisar("Encuesta eliminada.");
+                cargarEncuestas();
+            } catch (error) {
+                avisar(error.message, "error");
+            }
+        }
+
+        async function verResultados(id) {
+            try {
+                var r = await pedir("documentos.php?accion=encuesta_resultados&id=" + id);
+                var html = "<h2>Resultados: " + esc(r.titulo) + "</h2><p>Respuestas recibidas: <strong>" + r.total_respuestas + "</strong></p>";
+
+                r.preguntas.forEach(function (p) {
+                    html += "<h3>" + esc(p.texto) + "</h3>";
+                    if (p.tipo == "cerrada") {
+                        var total = 0;
+                        p.opciones.forEach(function (o) { total += Number(o.veces); });
+                        p.opciones.forEach(function (o) {
+                            var porcentaje = total > 0 ? Math.round(o.veces / total * 1000) / 10 : 0;
+                            html += "<div>" + esc(o.texto) + " — " + o.veces + " (" + porcentaje + "%)</div>" +
+                                '<div class="barra"><div style="width:' + porcentaje + '%"></div></div>';
+                        });
+                    } else if (p.comentarios.length == 0) {
+                        html += "<p>Sin comentarios.</p>";
+                    } else {
+                        p.comentarios.forEach(function (c) {
+                            html += '<div class="comentario">' + esc(c.texto_libre) + "</div>";
+                        });
+                    }
+                });
+                html += '<button class="boton boton-secundario" style="margin-left:0;" onclick="document.getElementById(\'zona-resultados\').style.display=\'none\'">Cerrar</button>';
+
+                var zona = document.getElementById("zona-resultados");
+                zona.innerHTML = html;
+                zona.style.display = "block";
+                zona.scrollIntoView();
+            } catch (error) {
+                avisar(error.message, "error");
+            }
+        }
+
+        async function iniciar() {
+            if (!(await iniciarPagina())) return;
+            dibujarPreguntas();
+            cargarEncuestas();
+        }
+        iniciar();
+    </script>
+</body>
+</html>

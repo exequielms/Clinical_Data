@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Documentos - Clinical_Data</title>
+    <link rel="stylesheet" href="assets/estilos.css">
+</head>
+<body>
+    <div class="layout-privado">
+        <aside class="barra-lateral" id="barra-lateral"></aside>
+        <div class="contenido-principal">
+            <main>
+                <h1>Documentos para pacientes</h1>
+                <div id="zona-mensaje"></div>
+
+                <div class="seccion">
+                    <h2 id="titulo-formulario">Subir documento</h2>
+                    <form id="form-documento">
+                        <div class="fila-form">
+                            <div>
+                                <label for="titulo">Título</label>
+                                <input type="text" id="titulo" maxlength="200">
+                            </div>
+                            <div>
+                                <label for="categoria">Categoría</label>
+                                <select id="categoria">
+                                    <option>Estudios e imagenología</option>
+                                    <option>Cardiología</option>
+                                    <option>Nefrología y trasplante</option>
+                                    <option>Enfermería</option>
+                                    <option>Urología</option>
+                                    <option>Ginecología</option>
+                                    <option>Prevención</option>
+                                    <option>Otros</option>
+                                </select>
+                            </div>
+                        </div>
+                        <label for="descripcion">Descripción</label>
+                        <textarea id="descripcion" rows="2"></textarea>
+                        <label for="archivo" id="etiqueta-archivo">Archivo PDF</label>
+                        <input type="file" id="archivo" accept="application/pdf">
+                        <button type="submit" class="boton" id="boton-guardar">Guardar documento</button>
+                        <button type="button" class="boton boton-secundario oculto" id="boton-cancelar-edicion" onclick="cancelarEdicion()">Cancelar edición</button>
+                    </form>
+                </div>
+
+                <h2>Documentos cargados</h2>
+                <p>
+                    <button type="button" class="boton" id="boton-seleccionar" onclick="alternarSeleccion()">Seleccionar</button>
+                    <span id="barra-seleccion" class="oculto">
+                        <button type="button" class="boton boton-secundario" onclick="editarSeleccionado()">Editar</button>
+                        <button type="button" class="boton boton-secundario" onclick="verQRSeleccionados()">Ver QR</button>
+                        <button type="button" class="boton boton-secundario" onclick="eliminarSeleccionados()">Eliminar</button>
+                        <span id="cuenta-seleccion" class="aclaracion"></span>
+                    </span>
+                </p>
+                <table class="tabla">
+                    <thead><tr id="encabezado-tabla"></tr></thead>
+                    <tbody id="lista-documentos"></tbody>
+                </table>
+
+                <div class="seccion oculto" id="zona-qr">
+                    <h2>Códigos QR</h2>
+                    <p>Al escanearlos, el paciente abre el documento directamente en su celular.</p>
+                    <div id="tarjetas-qr" style="display:flex; flex-wrap:wrap; gap:20px;"></div>
+                </div>
+
+                <div class="seccion">
+                    <h2>Código QR general</h2>
+                    <p>Lleva al paciente a la página con todos los documentos y la encuesta:</p>
+                    <p><a id="enlace-publico" href="publico.html" target="_blank"></a></p>
+                    <div id="qr-general"></div>
+                    <p>
+                        <button type="button" class="boton" onclick="descargarQR(direccionPublica(), 'qr_general')">Descargar QR general</button>
+                    </p>
+                    <label for="direccion-base" style="display:block; font-weight:600; margin-bottom:6px;">Dirección del servidor que usan los QR</label>
+                    <input type="text" id="direccion-base" oninput="cambioDireccionBase()" style="width:100%; margin-bottom:10px;">
+                    <p class="aclaracion">Debe ser una dirección que el celular del paciente pueda abrir (la IP o el nombre del servidor del hospital). Si entró con "localhost", cámbiela por la IP del servidor antes de imprimir los QR.</p>
+                </div>
+            </main>
+            <footer class="pie">Clinical_Data &middot; Hospital de Clínicas</footer>
+        </div>
+    </div>
+
+    <script src="assets/comun.js"></script>
+    <script src="assets/qr.js"></script>
+    <script>
+        var documentos = [];       // lista que se cargó del servidor
+        var modoSeleccion = false; // ¿se apretó "Seleccionar"?
+        var seleccionados = [];    // ids de los documentos marcados
+        var idEditando = 0;        // 0 = se está subiendo uno nuevo
+
+        // ---------- dirección que usan los QR ----------
+        function direccionBase() {
+            var base = document.getElementById("direccion-base").value.trim();
+            if (base != "" && base.charAt(base.length - 1) != "/") {
+                base += "/";
+            }
+            return base;
+        }
+        function direccionDocumento(id) {
+            return direccionBase() + "documentos.php?accion=ver&id=" + id;
+        }
+        function direccionPublica() {
+            return direccionBase() + "publico.html";
+        }
+        function cambioDireccionBase() {
+            document.getElementById("enlace-publico").innerText = direccionPublica();
+            dibujarQR("qr-general", direccionPublica(), 180);
+            if (!document.getElementById("zona-qr").classList.contains("oculto")) {
+                mostrarQR(qrMostrados); // se vuelven a dibujar con la dirección nueva
+            }
+        }
+
+        // ---------- lista de documentos ----------
+        async function cargarDocumentos() {
+            var datos = await pedir("documentos.php?accion=listar");
+            documentos = datos.documentos;
+            // si algún documento marcado ya no existe, se saca de la selección
+            seleccionados = seleccionados.filter(function (id) {
+                return documentos.some(function (d) { return d.id_documento == id; });
+            });
+            dibujarTabla();
+        }
+
+        function dibujarTabla() {
+            var encabezado = (modoSeleccion ? "<th></th>" : "") +
+                "<th>Título</th><th>Categoría</th><th>Fecha</th><th>Subido por</th><th></th>";
+            document.getElementById("encabezado-tabla").innerHTML = encabezado;
+
+            var html = "";
+            documentos.forEach(function (d) {
+                var marcado = seleccionados.indexOf(String(d.id_documento)) != -1 ? " checked" : "";
+                html += "<tr>";
+                if (modoSeleccion) {
+                    html += '<td><input type="checkbox" value="' + d.id_documento + '"' + marcado +
+                        ' onchange="marcar(this)"></td>';
+                }
+                html += "<td>" + esc(d.titulo) + "</td><td>" + esc(d.categoria) + "</td><td>" + fechaCorta(d.fecha_alta) +
+                    "</td><td>" + esc(d.subido_por) + '</td><td class="acciones">' +
+                    '<a class="enlace-editar" target="_blank" href="documentos.php?accion=ver&id=' + d.id_documento + '">Ver</a>' +
+                    '<button class="enlace-editar" onclick="verQRDe(' + d.id_documento + ')">QR</button></td></tr>';
+            });
+            if (html == "") {
+                html = '<tr><td colspan="6">Todavía no hay documentos.</td></tr>';
+            }
+            document.getElementById("lista-documentos").innerHTML = html;
+            actualizarCuenta();
+        }
+
+        // ---------- seleccionar ----------
+        function alternarSeleccion() {
+            modoSeleccion = !modoSeleccion;
+            seleccionados = [];
+            document.getElementById("boton-seleccionar").innerText = modoSeleccion ? "Cancelar selección" : "Seleccionar";
+            document.getElementById("barra-seleccion").classList.toggle("oculto", !modoSeleccion);
+            dibujarTabla();
+        }
+
+        function marcar(casilla) {
+            var posicion = seleccionados.indexOf(casilla.value);
+            if (casilla.checked && posicion == -1) {
+                seleccionados.push(casilla.value);
+            }
+            if (!casilla.checked && posicion != -1) {
+                seleccionados.splice(posicion, 1);
+            }
+            actualizarCuenta();
+        }
+
+        function actualizarCuenta() {
+            var n = seleccionados.length;
+            var texto = n == 0 ? "Marque uno o más documentos." : (n == 1 ? "1 seleccionado" : n + " seleccionados");
+            document.getElementById("cuenta-seleccion").innerText = texto;
+        }
+
+        // ---------- editar ----------
+        function editarSeleccionado() {
+            if (seleccionados.length != 1) {
+                avisar("Para editar, marque un solo documento.", "error");
+                return;
+            }
+            var d = documentos.filter(function (x) { return x.id_documento == seleccionados[0]; })[0];
+            idEditando = d.id_documento;
+            document.getElementById("titulo").value = d.titulo;
+            document.getElementById("categoria").value = d.categoria;
+            document.getElementById("descripcion").value = d.descripcion || "";
+            document.getElementById("archivo").value = "";
+            document.getElementById("titulo-formulario").innerText = "Editar documento";
+            document.getElementById("etiqueta-archivo").innerText = "Reemplazar PDF (opcional, si no elige uno queda el actual)";
+            document.getElementById("boton-guardar").innerText = "Guardar cambios";
+            document.getElementById("boton-cancelar-edicion").classList.remove("oculto");
+            document.getElementById("form-documento").scrollIntoView();
+        }
+
+        function cancelarEdicion() {
+            idEditando = 0;
+            document.getElementById("form-documento").reset();
+            document.getElementById("titulo-formulario").innerText = "Subir documento";
+            document.getElementById("etiqueta-archivo").innerText = "Archivo PDF";
+            document.getElementById("boton-guardar").innerText = "Guardar documento";
+            document.getElementById("boton-cancelar-edicion").classList.add("oculto");
+        }
+
+        // ---------- eliminar ----------
+        async function eliminarSeleccionados() {
+            var n = seleccionados.length;
+            if (n == 0) {
+                avisar("Marque al menos un documento para eliminar.", "error");
+                return;
+            }
+            var pregunta = n == 1 ? "¿Eliminar este documento?" : "¿Eliminar estos " + n + " documentos?";
+            if (!confirm(pregunta + " Los pacientes dejarán de verlos.")) return;
+            try {
+                for (var i = 0; i < seleccionados.length; i++) {
+                    await enviar("documentos.php?accion=eliminar_documento", { id: seleccionados[i] });
+                    if (idEditando == seleccionados[i]) {
+                        cancelarEdicion();
+                    }
+                }
+                avisar(n == 1 ? "Documento eliminado." : n + " documentos eliminados.");
+                seleccionados = [];
+                cargarDocumentos();
+            } catch (error) {
+                avisar(error.message, "error");
+                cargarDocumentos();
+            }
+        }
+
+        // ---------- códigos QR ----------
+        var qrMostrados = []; // ids de los documentos que se están mostrando
+
+        function verQRDe(id) {
+            mostrarQR([String(id)]);
+        }
+
+        function verQRSeleccionados() {
+            if (seleccionados.length == 0) {
+                avisar("Marque al menos un documento para ver su QR.", "error");
+                return;
+            }
+            mostrarQR(seleccionados.slice());
+        }
+
+        function mostrarQR(ids) {
+            qrMostrados = ids;
+            var html = "";
+            ids.forEach(function (id) {
+                var d = documentos.filter(function (x) { return x.id_documento == id; })[0];
+                if (!d) return;
+                html += '<div style="text-align:center; max-width:200px;">' +
+                    qrComoSVG(direccionDocumento(id), 180) +
+                    '<p><strong>' + esc(d.titulo) + '</strong></p>' +
+                    '<button class="boton" onclick="bajarQR(' + id + ')">Descargar</button></div>';
+            });
+            document.getElementById("tarjetas-qr").innerHTML = html;
+            document.getElementById("zona-qr").classList.remove("oculto");
+            document.getElementById("zona-qr").scrollIntoView();
+        }
+
+        function bajarQR(id) {
+            var d = documentos.filter(function (x) { return x.id_documento == id; })[0];
+            var nombre = "qr_" + d.titulo.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
+            descargarQR(direccionDocumento(id), nombre);
+        }
+
+        // ---------- guardar (documento nuevo o cambios) ----------
+        document.getElementById("form-documento").addEventListener("submit", async function (evento) {
+            evento.preventDefault();
+            var formulario = new FormData();
+            formulario.append("titulo", document.getElementById("titulo").value);
+            formulario.append("descripcion", document.getElementById("descripcion").value);
+            formulario.append("categoria", document.getElementById("categoria").value);
+            var archivo = document.getElementById("archivo").files[0];
+            if (archivo) {
+                formulario.append("archivo", archivo);
+            }
+            var accion = "subir";
+            if (idEditando != 0) {
+                accion = "editar";
+                formulario.append("id", idEditando);
+            }
+            try {
+                var r = await pedir("documentos.php?accion=" + accion, { method: "POST", body: formulario });
+                avisar(r.mensaje);
+                cancelarEdicion();
+                cargarDocumentos();
+            } catch (error) {
+                avisar(error.message, "error");
+            }
+        });
+
+        async function iniciar() {
+            if (!(await iniciarPagina())) return;
+            // por defecto, la carpeta donde está esta página
+            document.getElementById("direccion-base").value = window.location.href.replace(/[^\/]*$/, "");
+            cambioDireccionBase();
+            cargarDocumentos();
+        }
+        iniciar();
+    </script>
+</body>
+</html>

@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Panel - Clinical_Data</title>
+    <link rel="stylesheet" href="assets/estilos.css">
+</head>
+<body>
+    <div class="layout-privado">
+        <aside class="barra-lateral" id="barra-lateral"></aside>
+        <div class="contenido-principal">
+            <main>
+                <h1 id="bienvenida">Panel del sistema</h1>
+                <div id="zona-mensaje"></div>
+
+                <h2>Resumen</h2>
+                <div class="tarjetas-resumen" id="tarjetas"></div>
+
+                <!-- Esta zona solo se muestra si quien entró es Administrador -->
+                <div id="zona-usuarios" class="oculto">
+                    <h2>Usuarios del sistema</h2>
+                    <p><button type="button" class="boton" id="boton-agregar-usuario" onclick="alternarFormularioUsuario()">Añadir usuario</button></p>
+
+                    <div class="seccion oculto" id="formulario-usuario">
+                        <form id="form-usuario" autocomplete="off">
+                            <div class="fila-form">
+                                <div>
+                                    <label for="u-nombre">Nombre</label>
+                                    <input type="text" id="u-nombre" maxlength="100">
+                                </div>
+                                <div>
+                                    <label for="u-apellido">Apellido</label>
+                                    <input type="text" id="u-apellido" maxlength="100">
+                                </div>
+                            </div>
+                            <div class="fila-form">
+                                <div>
+                                    <label for="u-usuario">Usuario</label>
+                                    <input type="text" id="u-usuario" maxlength="50" autocomplete="off">
+                                </div>
+                                <div>
+                                    <label for="u-rol">Rol</label>
+                                    <select id="u-rol">
+                                        <option>Recepcionista</option>
+                                        <option>Coordinador</option>
+                                        <option>Administrador</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="fila-form">
+                                <div>
+                                    <label for="u-clave">Contraseña (mínimo 8 caracteres)</label>
+                                    <input type="password" id="u-clave" autocomplete="new-password">
+                                </div>
+                                <div>
+                                    <label for="u-clave2">Repetir contraseña</label>
+                                    <input type="password" id="u-clave2" autocomplete="new-password">
+                                </div>
+                            </div>
+                            <p class="aclaracion">Recepcionista: documentos y encuestas. Coordinador: traslados y recursos. Administrador: todo, incluido crear usuarios.</p>
+                            <button type="submit" class="boton">Crear usuario</button>
+                            <button type="button" class="boton boton-secundario" onclick="alternarFormularioUsuario()">Cancelar</button>
+                        </form>
+                    </div>
+
+                    <table class="tabla">
+                        <thead><tr><th>Nombre</th><th>Usuario</th><th>Rol</th></tr></thead>
+                        <tbody id="lista-usuarios"></tbody>
+                    </table>
+                </div>
+            </main>
+            <footer class="pie">Clinical_Data &middot; Hospital de Clínicas</footer>
+        </div>
+    </div>
+
+    <script src="assets/comun.js"></script>
+    <script>
+        async function iniciar() {
+            var usuario = await iniciarPagina();
+            if (!usuario) return;
+            document.getElementById("bienvenida").innerText = "Hola, " + usuario.nombre.split(" ")[0];
+
+            try {
+                var r = (await pedir("acceso.php?accion=resumen")).resumen;
+
+                // cada tarjeta: [número, texto, ícono, roles que la ven]
+                var tarjetas = [
+                    [r.documentos, "Documentos cargados", "documento", ["Administrador", "Recepcionista"]],
+                    [r.encuestas_activas, "Encuestas activas", "encuesta", ["Administrador", "Recepcionista"]],
+                    [r.respuestas, "Respuestas recibidas", "persona", ["Administrador", "Recepcionista"]],
+                    [r.traslados_pendientes, "Traslados pendientes", "reloj", ["Administrador", "Coordinador"]],
+                    [r.traslados_en_curso, "Traslados en curso", "traslado", ["Administrador", "Coordinador"]],
+                    [r.ambulancias_disponibles, "Ambulancias disponibles", "ambulancia", ["Administrador", "Coordinador"]]
+                ];
+
+                var html = "";
+                tarjetas.forEach(function (t) {
+                    if (t[3].indexOf(usuario.rol) != -1) {
+                        html += '<div class="tarjeta-resumen"><div class="icono-tarjeta">' + icono(t[2]) + '</div>' +
+                            '<div><div class="numero">' + t[0] + '</div><div class="etiqueta">' + t[1] + '</div></div></div>';
+                    }
+                });
+                document.getElementById("tarjetas").innerHTML = html;
+            } catch (error) {
+                avisar(error.message, "error");
+            }
+
+            // solo el Administrador ve (y puede usar) la creación de usuarios
+            if (usuario.rol == "Administrador") {
+                document.getElementById("zona-usuarios").classList.remove("oculto");
+                cargarUsuarios();
+            }
+        }
+
+        async function cargarUsuarios() {
+            try {
+                var lista = (await pedir("acceso.php?accion=usuarios_listar")).usuarios;
+                var html = "";
+                lista.forEach(function (u) {
+                    html += "<tr><td>" + esc(u.nombre + " " + u.apellido) + "</td><td>" + esc(u.usuario) +
+                        "</td><td>" + esc(u.rol) + "</td></tr>";
+                });
+                document.getElementById("lista-usuarios").innerHTML = html;
+            } catch (error) {
+                avisar(error.message, "error");
+            }
+        }
+
+        function alternarFormularioUsuario() {
+            var formulario = document.getElementById("formulario-usuario");
+            formulario.classList.toggle("oculto");
+            document.getElementById("form-usuario").reset();
+            if (!formulario.classList.contains("oculto")) {
+                document.getElementById("u-nombre").focus();
+            }
+        }
+
+        document.getElementById("form-usuario").addEventListener("submit", async function (evento) {
+            evento.preventDefault();
+            var clave = document.getElementById("u-clave").value;
+            if (clave != document.getElementById("u-clave2").value) {
+                avisar("Las contraseñas no coinciden.", "error");
+                return;
+            }
+            try {
+                var r = await enviar("acceso.php?accion=usuario_crear", {
+                    nombre: document.getElementById("u-nombre").value,
+                    apellido: document.getElementById("u-apellido").value,
+                    usuario: document.getElementById("u-usuario").value,
+                    clave: clave,
+                    rol: document.getElementById("u-rol").value
+                });
+                avisar(r.mensaje);
+                alternarFormularioUsuario();
+                cargarUsuarios();
+            } catch (error) {
+                avisar(error.message, "error");
+            }
+        });
+
+        iniciar();
+    </script>
+</body>
+</html>

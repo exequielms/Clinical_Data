@@ -1,0 +1,568 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Traslados - Clinical_Data</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+    <link rel="stylesheet" href="assets/estilos.css">
+</head>
+<body>
+    <div class="layout-privado">
+        <aside class="barra-lateral" id="barra-lateral"></aside>
+        <div class="contenido-principal">
+            <main>
+                <h1>Traslados de ambulancias</h1>
+                <div id="zona-mensaje"></div>
+
+                <!-- ficha del traslado elegido (se muestra al tocar "Ver") -->
+                <div class="seccion" id="zona-detalle" style="display:none;"></div>
+
+                <div class="barra-filtros">
+                    <label for="filtro-estado">Mostrar:</label>
+                    <select id="filtro-estado" onchange="cargarLista()">
+                        <option value="">Todos los estados</option>
+                        <option>Pendiente</option>
+                        <option>En viaje</option>
+                        <option>En destino</option>
+                        <option>Regresando</option>
+                        <option>Finalizado</option>
+                        <option>Cancelado</option>
+                    </select>
+                    <button class="boton" onclick="mostrarFormulario()">+ Nuevo traslado</button>
+                </div>
+
+                <!-- formulario de nuevo traslado -->
+                <div class="seccion" id="zona-formulario" style="display:none;">
+                    <h2>Nuevo traslado</h2>
+                    <form id="form-traslado">
+                        <div class="fila-form">
+                            <div>
+                                <label>Qué se traslada</label>
+                                <select id="tipo_elemento">
+                                    <option>Paciente</option>
+                                    <option>Material biológico</option>
+                                    <option>Equipamiento médico</option>
+                                    <option>Insumo</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label>Nombre del paciente o detalle</label>
+                                <input type="text" id="elemento" maxlength="300">
+                            </div>
+                            <div>
+                                <label>Ruta (opcional)</label>
+                                <select id="id_ruta" onchange="elegirRuta()"></select>
+                            </div>
+                        </div>
+                        <div class="fila-form">
+                            <div>
+                                <label>Origen</label>
+                                <input type="text" id="origen" maxlength="200" value="Hospital de Clínicas">
+                            </div>
+                            <div>
+                                <label>Destino</label>
+                                <input type="text" id="destino" maxlength="200">
+                            </div>
+                        </div>
+                        <div class="fila-form">
+                            <div>
+                                <label>Dirección de destino (para el mapa)</label>
+                                <input type="text" id="direccion" maxlength="200" placeholder="Ej: Av. 8 de Octubre 2492">
+                            </div>
+                            <div>
+                                <label>Departamento</label>
+                                <select id="departamento">
+                                    <option>Montevideo</option><option>Artigas</option><option>Canelones</option>
+                                    <option>Cerro Largo</option><option>Colonia</option><option>Durazno</option>
+                                    <option>Flores</option><option>Florida</option><option>Lavalleja</option>
+                                    <option>Maldonado</option><option>Paysandú</option><option>Río Negro</option>
+                                    <option>Rivera</option><option>Rocha</option><option>Salto</option>
+                                    <option>San José</option><option>Soriano</option><option>Tacuarembó</option>
+                                    <option>Treinta y Tres</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label>&nbsp;</label>
+                                <button type="button" class="boton" onclick="ubicarDestino()">Ubicar y trazar ruta</button>
+                            </div>
+                        </div>
+                        <p id="info-ruta"></p>
+                        <div id="mapa-form" style="height:320px; border-radius:8px; margin-bottom:16px;"></div>
+                        <div class="fila-form">
+                            <div>
+                                <label>Ambulancia</label>
+                                <select id="id_ambulancia"></select>
+                            </div>
+                            <div>
+                                <label>Conductor</label>
+                                <select id="id_conductor"></select>
+                            </div>
+                            <div>
+                                <label>Acompañante (opcional)</label>
+                                <select id="id_copiloto"></select>
+                            </div>
+                        </div>
+                        <div class="fila-form">
+                            <div>
+                                <label>Salida prevista</label>
+                                <input type="datetime-local" id="hora_salida_prevista">
+                            </div>
+                            <div>
+                                <label>Llegada estimada</label>
+                                <input type="datetime-local" id="hora_llegada_estimada">
+                            </div>
+                        </div>
+                        <label>Observaciones</label>
+                        <textarea id="observaciones" rows="2"></textarea>
+                        <button type="submit" class="boton">Registrar traslado</button>
+                        <button type="button" class="boton boton-secundario" onclick="ocultarFormulario()">Cancelar</button>
+                    </form>
+                </div>
+
+                <table class="tabla">
+                    <thead>
+                        <tr><th>#</th><th>Qué se traslada</th><th>Recorrido</th><th>Ambulancia / conductor</th><th>Salida prevista</th><th>Estado</th><th></th></tr>
+                    </thead>
+                    <tbody id="lista-traslados"></tbody>
+                </table>
+            </main>
+            <footer class="pie">Clinical_Data &middot; Hospital de Clínicas</footer>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+    <script src="assets/comun.js"></script>
+    <script>
+        var recursos = null;     // ambulancias, personal y rutas
+        var trasladoAbierto = 0; // id del traslado que se está viendo (0 = ninguno)
+
+        // ---------- mapa (Leaflet + Geoapify) ----------
+        var CLAVE_GEOAPIFY = "4572a7318c164b3b873097a1f7b2c618";
+        var HOSPITAL = [-34.8887, -56.1664]; // Hospital de Clínicas (se puede arrastrar el marcador para ajustarlo)
+
+        var mapaForm = null;        // mapa del formulario
+        var marcadorOrigen = null;  // ambulancia (sale del hospital)
+        var marcadorDestino = null; // destino
+        var lineaRuta = null;       // línea azul de la ruta
+
+        var mapaFicha = null;         // mapa de la ficha del traslado
+        var mapaFichaAbierto = false; // para que la actualización automática no lo borre
+        var trasladoActual = null;    // datos del traslado que se está viendo
+
+        // los íconos son emojis, así no hace falta ninguna imagen
+        function iconoMapa(emoji) {
+            return L.divIcon({
+                html: '<div style="font-size:30px; line-height:30px;">' + emoji + "</div>",
+                className: "",
+                iconSize: [30, 30],
+                iconAnchor: [15, 28]
+            });
+        }
+
+        function crearMapa(idElemento) {
+            var mapa = L.map(idElemento).setView(HOSPITAL, 13);
+            L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+                attribution: "© OpenStreetMap"
+            }).addTo(mapa);
+            return mapa;
+        }
+
+        // Geocoding: pasa una dirección a latitud y longitud. Devuelve null si no la encuentra
+        async function buscarDireccion(texto) {
+            var url = "https://api.geoapify.com/v1/geocode/search?" +
+                "text=" + encodeURIComponent(texto) +
+                "&filter=countrycode:uy" +
+                "&lang=es&limit=1&format=json&apiKey=" + CLAVE_GEOAPIFY;
+            var respuesta = await fetch(url);
+            var dato = await respuesta.json();
+            if (dato.results && dato.results.length > 0) {
+                return dato.results[0];
+            }
+            return null;
+        }
+
+        // Routing: calcula la ruta entre dos puntos [lat, lon]
+        // devuelve la distancia (m), el tiempo (s) y los puntos para dibujar la línea
+        async function pedirRuta(origen, destino) {
+            var url = "https://api.geoapify.com/v1/routing?" +
+                "waypoints=" + origen[0] + "," + origen[1] + "|" + destino[0] + "," + destino[1] +
+                "&mode=drive&units=metric&lang=es&apiKey=" + CLAVE_GEOAPIFY;
+            var respuesta = await fetch(url);
+            var dato = await respuesta.json();
+            if (!dato.features || dato.features.length == 0) {
+                throw new Error("No se pudo calcular la ruta.");
+            }
+            var ruta = dato.features[0];
+
+            // la geometría viene como [lon, lat]; Leaflet usa [lat, lon]
+            var lineas = ruta.geometry.coordinates;
+            if (ruta.geometry.type == "LineString") {
+                lineas = [lineas];
+            }
+            var puntos = [];
+            lineas.forEach(function (linea) {
+                linea.forEach(function (punto) {
+                    puntos.push([punto[1], punto[0]]);
+                });
+            });
+
+            return { distancia: ruta.properties.distance, tiempo: ruta.properties.time, puntos: puntos };
+        }
+
+        // "12,3 km · 25 min"
+        function textoRuta(ruta) {
+            return (ruta.distancia / 1000).toFixed(1) + " km · " + Math.round(ruta.tiempo / 60) + " min aprox.";
+        }
+
+        // ---------- mapa del formulario ----------
+        function prepararMapaForm() {
+            if (mapaForm == null) {
+                mapaForm = crearMapa("mapa-form");
+                marcadorOrigen = L.marker(HOSPITAL, { draggable: true, icon: iconoMapa("🚑") }).addTo(mapaForm);
+                marcadorOrigen.on("dragend", function () {
+                    if (marcadorDestino) { trazarRuta(); }
+                });
+            } else {
+                // el mapa estaba escondido: se le avisa que ya se ve
+                mapaForm.invalidateSize();
+                if (marcadorDestino) { mapaForm.removeLayer(marcadorDestino); marcadorDestino = null; }
+                if (lineaRuta) { mapaForm.removeLayer(lineaRuta); lineaRuta = null; }
+                marcadorOrigen.setLatLng(HOSPITAL);
+                mapaForm.setView(HOSPITAL, 13);
+            }
+            document.getElementById("info-ruta").innerHTML = "";
+        }
+
+        async function ubicarDestino() {
+            var direccion = document.getElementById("direccion").value.trim();
+            var departamento = document.getElementById("departamento").value;
+            if (direccion == "") {
+                avisar("Escriba la dirección de destino.", "error");
+                return;
+            }
+            try {
+                var lugar = await buscarDireccion(direccion + ", " + departamento + ", Uruguay");
+                if (!lugar) {
+                    avisar("No se encontró esa dirección.", "error");
+                    return;
+                }
+                document.getElementById("destino").value = direccion + ", " + departamento;
+
+                if (marcadorDestino) { mapaForm.removeLayer(marcadorDestino); }
+                marcadorDestino = L.marker([lugar.lat, lugar.lon], { draggable: true, icon: iconoMapa("📍") }).addTo(mapaForm);
+                marcadorDestino.on("dragend", trazarRuta); // si se arrastra, se vuelve a trazar
+                await trazarRuta();
+            } catch (error) {
+                avisar("No se pudo usar el mapa. Revise la conexión a internet.", "error");
+            }
+        }
+
+        async function trazarRuta() {
+            var origen = marcadorOrigen.getLatLng();
+            var destino = marcadorDestino.getLatLng();
+            try {
+                var ruta = await pedirRuta([origen.lat, origen.lng], [destino.lat, destino.lng]);
+                if (lineaRuta) { mapaForm.removeLayer(lineaRuta); }
+                lineaRuta = L.polyline(ruta.puntos, { color: "blue", weight: 5 }).addTo(mapaForm);
+                mapaForm.fitBounds(lineaRuta.getBounds());
+                document.getElementById("info-ruta").innerHTML = "<strong>Ruta:</strong> " + textoRuta(ruta);
+
+                // con el tiempo de la ruta se completa la llegada estimada
+                var salida = document.getElementById("hora_salida_prevista").value;
+                if (salida) {
+                    var llegada = new Date(new Date(salida).getTime() + ruta.tiempo * 1000);
+                    document.getElementById("hora_llegada_estimada").value = fechaParaInput(llegada);
+                }
+            } catch (error) {
+                avisar("No se pudo calcular la ruta. Revise la conexión a internet.", "error");
+            }
+        }
+
+        // ---------- mapa de la ficha de un traslado ----------
+        async function mostrarMapaFicha() {
+            var t = trasladoActual;
+            var info = document.getElementById("info-mapa-ficha");
+            try {
+                // el origen casi siempre es el hospital; si no, se busca la dirección
+                var origen = HOSPITAL;
+                if (t.origen != "Hospital de Clínicas") {
+                    var lugarO = await buscarDireccion(t.origen + ", Uruguay");
+                    if (!lugarO) { info.innerHTML = "No se encontró el origen en el mapa."; return; }
+                    origen = [lugarO.lat, lugarO.lon];
+                }
+                var lugarD = await buscarDireccion(t.destino + ", Uruguay");
+                if (!lugarD) { info.innerHTML = "No se encontró el destino en el mapa."; return; }
+                var destino = [lugarD.lat, lugarD.lon];
+
+                var ruta = await pedirRuta(origen, destino);
+
+                var zonaMapa = document.getElementById("mapa-ficha");
+                zonaMapa.style.display = "block";
+                if (mapaFicha) { mapaFicha.remove(); }
+                mapaFicha = crearMapa("mapa-ficha");
+                mapaFichaAbierto = true;
+
+                L.marker(origen, { icon: iconoMapa("🚑") }).addTo(mapaFicha);
+                L.marker(destino, { icon: iconoMapa("📍") }).addTo(mapaFicha);
+                var linea = L.polyline(ruta.puntos, { color: "blue", weight: 5 }).addTo(mapaFicha);
+                mapaFicha.fitBounds(linea.getBounds());
+                info.innerHTML = "<strong>Ruta:</strong> " + textoRuta(ruta);
+            } catch (error) {
+                info.innerHTML = "No se pudo usar el mapa. Revise la conexión a internet.";
+            }
+        }
+
+        // el recorrido siempre sigue este orden
+        var PASOS = ["Pendiente", "En viaje", "En destino", "Regresando", "Finalizado"];
+        // qué dice el botón de cada paso
+        var TEXTO_BOTON = {
+            "Pendiente": "Iniciar viaje",
+            "En viaje": "Registrar llegada al destino",
+            "En destino": "Iniciar regreso al hospital",
+            "Regresando": "Registrar regreso al hospital"
+        };
+
+        // ---------- lista ----------
+        async function cargarLista() {
+            var estado = document.getElementById("filtro-estado").value;
+            var datos = await pedir("traslados.php?accion=listar&estado=" + encodeURIComponent(estado));
+            var html = "";
+            datos.traslados.forEach(function (t) {
+                var demorado = "";
+                // si ya pasó la hora estimada y todavía no llegó, se avisa
+                if (t.estado == "En viaje" && t.hora_llegada_estimada &&
+                    new Date(t.hora_llegada_estimada.replace(" ", "T")) < new Date()) {
+                    demorado = ' <span class="demorado">Demorado</span>';
+                }
+                html += "<tr><td>" + t.id_traslado + "</td>" +
+                    "<td><strong>" + esc(t.tipo_elemento) + "</strong><br>" + esc(t.elemento) + "</td>" +
+                    "<td>" + esc(t.origen) + " → " + esc(t.destino) + "</td>" +
+                    "<td>" + esc(t.patente) + "<br>" + esc(t.conductor) + "</td>" +
+                    "<td>" + fechaCorta(t.hora_salida_prevista) + "</td>" +
+                    "<td>" + etiquetaEstado(t.estado) + demorado + "</td>" +
+                    '<td><button class="enlace-editar" onclick="verTraslado(' + t.id_traslado + ')">Ver</button></td></tr>';
+            });
+            if (html == "") {
+                html = '<tr><td colspan="7">No hay traslados para mostrar.</td></tr>';
+            }
+            document.getElementById("lista-traslados").innerHTML = html;
+        }
+
+        // ---------- formulario ----------
+        function opciones(lista, textoVacio) {
+            var html = textoVacio ? '<option value="">' + textoVacio + "</option>" : "";
+            lista.forEach(function (x) {
+                html += '<option value="' + x.valor + '">' + esc(x.texto) + "</option>";
+            });
+            return html;
+        }
+
+        function fechaParaInput(fecha) {
+            // Date -> "2026-10-15T14:30" (hora local, como pide datetime-local)
+            var dos = function (n) { return (n < 10 ? "0" : "") + n; };
+            return fecha.getFullYear() + "-" + dos(fecha.getMonth() + 1) + "-" + dos(fecha.getDate()) +
+                "T" + dos(fecha.getHours()) + ":" + dos(fecha.getMinutes());
+        }
+
+        async function mostrarFormulario() {
+            recursos = await pedir("traslados.php?accion=recursos");
+
+            var ambulancias = recursos.ambulancias.filter(function (a) { return a.estado != "Mantenimiento"; })
+                .map(function (a) { return { valor: a.id_ambulancia, texto: a.patente + " - " + a.modelo + " (" + a.estado + ")" }; });
+            var conductores = recursos.personal.filter(function (p) { return p.cargo == "Conductor"; })
+                .map(function (p) { return { valor: p.id_personal, texto: p.apellido + ", " + p.nombre }; });
+            var acompanantes = recursos.personal
+                .map(function (p) { return { valor: p.id_personal, texto: p.apellido + ", " + p.nombre + " (" + p.cargo + ")" }; });
+            var rutas = recursos.rutas
+                .map(function (r) { return { valor: r.id_ruta, texto: r.nombre }; });
+
+            document.getElementById("id_ambulancia").innerHTML = opciones(ambulancias, "Elija una ambulancia");
+            document.getElementById("id_conductor").innerHTML = opciones(conductores, "Elija un conductor");
+            document.getElementById("id_copiloto").innerHTML = opciones(acompanantes, "Sin acompañante");
+            document.getElementById("id_ruta").innerHTML = opciones(rutas, "Sin ruta (escribir a mano)");
+            document.getElementById("hora_salida_prevista").value = fechaParaInput(new Date());
+
+            document.getElementById("zona-formulario").style.display = "block";
+            prepararMapaForm();
+            document.getElementById("zona-formulario").scrollIntoView();
+        }
+
+        function ocultarFormulario() {
+            document.getElementById("zona-formulario").style.display = "none";
+            document.getElementById("form-traslado").reset();
+        }
+
+        // al elegir una ruta se completan el destino y la llegada estimada
+        function elegirRuta() {
+            var id = document.getElementById("id_ruta").value;
+            if (id == "") return;
+            var ruta = recursos.rutas.filter(function (r) { return r.id_ruta == id; })[0];
+            document.getElementById("origen").value = ruta.origen;
+            document.getElementById("destino").value = ruta.destino;
+
+            var salida = document.getElementById("hora_salida_prevista").value;
+            if (salida) {
+                var llegada = new Date(new Date(salida).getTime() + ruta.tiempo_min * 60000);
+                document.getElementById("hora_llegada_estimada").value = fechaParaInput(llegada);
+            }
+        }
+
+        document.getElementById("form-traslado").addEventListener("submit", async function (evento) {
+            evento.preventDefault();
+            var campos = ["tipo_elemento", "elemento", "id_ruta", "origen", "destino", "id_ambulancia", "id_conductor",
+                "id_copiloto", "hora_salida_prevista", "hora_llegada_estimada", "observaciones"];
+            var datos = {};
+            campos.forEach(function (c) { datos[c] = document.getElementById(c).value; });
+
+            try {
+                var r = await enviar("traslados.php?accion=crear", datos);
+                ocultarFormulario();
+                avisar(r.mensaje);
+                cargarLista();
+                verTraslado(r.id);
+            } catch (error) {
+                avisar(error.message, "error");
+            }
+        });
+
+        // ---------- ficha de un traslado ----------
+        async function verTraslado(id) {
+            try {
+                var datos = await pedir("traslados.php?accion=detalle&id=" + id);
+                var t = datos.traslado;
+                trasladoAbierto = id;
+                trasladoActual = t;
+
+                // si había un mapa de otra ficha, se descarta
+                if (mapaFicha) { mapaFicha.remove(); mapaFicha = null; }
+                mapaFichaAbierto = false;
+
+                // barra de pasos
+                var pasos = '<div class="pasos">';
+                if (t.estado == "Cancelado") {
+                    pasos += '<span class="paso">Cancelado</span>';
+                } else {
+                    var posicion = PASOS.indexOf(t.estado);
+                    PASOS.forEach(function (paso, i) {
+                        var clase = i < posicion ? " hecho" : (i == posicion ? " actual" : "");
+                        pasos += '<span class="paso' + clase + '">' + paso + "</span>";
+                    });
+                }
+                pasos += "</div>";
+
+                var dato = function (titulo, valor) {
+                    return "<div><small>" + titulo + "</small>" + esc(valor || "—") + "</div>";
+                };
+
+                var html = "<h2>Traslado #" + t.id_traslado + "</h2>" + pasos +
+                    '<div class="datos-ficha">' +
+                    dato("Qué se traslada", t.tipo_elemento + ": " + t.elemento) +
+                    dato("Origen", t.origen) + dato("Destino", t.destino) + dato("Ruta", t.ruta) +
+                    dato("Ambulancia", t.patente + " - " + t.modelo) +
+                    dato("Conductor", t.conductor) + dato("Acompañante", t.copiloto) +
+                    dato("Salida prevista", fechaCorta(t.hora_salida_prevista)) +
+                    dato("Llegada estimada", fechaCorta(t.hora_llegada_estimada)) +
+                    dato("Salida real", fechaCorta(t.hora_salida_real)) +
+                    dato("Llegada real al destino", fechaCorta(t.hora_llegada_real)) +
+                    dato("Regreso al hospital", fechaCorta(t.hora_regreso)) +
+                    dato("Registrado por", t.registrado_por) +
+                    dato("Observaciones", t.observaciones) + "</div>";
+
+                // mapa de la ruta (se carga al tocar el botón)
+                html += '<p><button class="boton boton-secundario" style="margin-left:0;" onclick="mostrarMapaFicha()">Ver ruta en el mapa</button></p>' +
+                    '<div id="info-mapa-ficha"></div>' +
+                    '<div id="mapa-ficha" style="display:none; height:320px; border-radius:8px; margin-bottom:16px;"></div>';
+
+                // botones para avanzar de estado
+                var puedeAvanzar = TEXTO_BOTON[t.estado] !== undefined;
+                var puedeCancelar = t.estado == "Pendiente" || t.estado == "En viaje";
+                if (puedeAvanzar || puedeCancelar) {
+                    html += '<label for="comentario">Comentario (opcional)</label>' +
+                        '<input type="text" id="comentario" maxlength="300" placeholder="Ej: salió con 10 minutos de demora">' +
+                        '<div class="acciones">';
+                    if (puedeAvanzar) {
+                        var siguiente = PASOS[PASOS.indexOf(t.estado) + 1];
+                        html += '<button class="boton" onclick="cambiarEstado(' + t.id_traslado + ', \'' + siguiente + '\')">' + TEXTO_BOTON[t.estado] + "</button>";
+                    }
+                    if (puedeCancelar) {
+                        html += '<button class="enlace-eliminar" onclick="cambiarEstado(' + t.id_traslado + ', \'Cancelado\')">Cancelar traslado</button>';
+                    }
+                    html += "</div>";
+                }
+                if (t.estado == "Pendiente" || t.estado == "Cancelado") {
+                    html += '<p><button class="enlace-eliminar" onclick="eliminarTraslado(' + t.id_traslado + ')">Eliminar traslado</button></p>';
+                }
+
+                // historial
+                html += "<h3 style=\"margin-top:24px;\">Historial</h3><ul class=\"linea-tiempo\">";
+                datos.historial.forEach(function (h) {
+                    html += "<li><strong>" + esc(h.estado) + "</strong> <small>" + fechaCorta(h.fecha_hora) + " · " + esc(h.usuario) + "</small>" +
+                        (h.comentario ? "<br>" + esc(h.comentario) : "") + "</li>";
+                });
+                html += "</ul>" +
+                    '<button class="boton boton-secundario" style="margin-left:0;" onclick="cerrarDetalle()">Cerrar</button>';
+
+                var zona = document.getElementById("zona-detalle");
+                zona.innerHTML = html;
+                zona.style.display = "block";
+            } catch (error) {
+                avisar(error.message, "error");
+            }
+        }
+
+        function cerrarDetalle() {
+            trasladoAbierto = 0;
+            if (mapaFicha) { mapaFicha.remove(); mapaFicha = null; }
+            mapaFichaAbierto = false;
+            document.getElementById("zona-detalle").style.display = "none";
+        }
+
+        async function cambiarEstado(id, estado) {
+            if (estado == "Cancelado" && !confirm("¿Cancelar este traslado?")) return;
+            var comentario = document.getElementById("comentario");
+            try {
+                var r = await enviar("traslados.php?accion=cambiar_estado", {
+                    id: id,
+                    estado: estado,
+                    comentario: comentario ? comentario.value : ""
+                });
+                avisar(r.mensaje);
+                cargarLista();
+                verTraslado(id);
+            } catch (error) {
+                avisar(error.message, "error");
+            }
+        }
+
+        async function eliminarTraslado(id) {
+            if (!confirm("¿Eliminar este traslado?")) return;
+            try {
+                await enviar("traslados.php?accion=eliminar_traslado", { id: id });
+                cerrarDetalle();
+                avisar("Traslado eliminado.");
+                cargarLista();
+            } catch (error) {
+                avisar(error.message, "error");
+            }
+        }
+
+        // ---------- arranque ----------
+        async function iniciar() {
+            if (!(await iniciarPagina())) return;
+            cargarLista();
+
+            // cada 30 segundos se actualiza solo, para ver el estado de las ambulancias al día
+            setInterval(function () {
+                cargarLista();
+                // la ficha abierta también se actualiza, salvo que se esté escribiendo un comentario
+                var comentario = document.getElementById("comentario");
+                if (trasladoAbierto != 0 && !mapaFichaAbierto && (!comentario || comentario.value == "")) {
+                    verTraslado(trasladoAbierto);
+                }
+            }, 30000);
+        }
+        iniciar();
+    </script>
+</body>
+</html>

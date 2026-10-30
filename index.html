@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ingresar - Clinical_Data</title>
+    <link rel="stylesheet" href="assets/estilos.css">
+</head>
+<body>
+    <main>
+        <div class="pantalla-login">
+            <div id="logo-login" style="margin-bottom: 20px;"></div>
+            <div id="zona-mensaje"></div>
+
+            <form id="form-login">
+                <label for="usuario">Usuario</label>
+                <input type="text" id="usuario" maxlength="50" autocomplete="username">
+
+                <label for="clave">Contraseña</label>
+                <input type="password" id="clave" maxlength="100" autocomplete="current-password">
+
+                <button type="submit" class="boton" style="width:100%;">Ingresar</button>
+            </form>
+            <p style="margin-top:22px; font-size:0.88em;"><a href="publico.html">Ver documentación para pacientes</a></p>
+        </div>
+    </main>
+
+    <script src="assets/comun.js"></script>
+    <script>
+        logoGrande("logo-login");
+
+        // si ya inició sesión antes, va directo al panel
+        pedir("acceso.php?accion=sesion").then(function (datos) {
+            if (datos.logueado) {
+                window.location.href = "panel.html";
+            }
+        }).catch(function () {});
+
+        document.getElementById("form-login").addEventListener("submit", async function (evento) {
+            evento.preventDefault();
+            try {
+                await enviar("acceso.php?accion=login", {
+                    usuario: document.getElementById("usuario").value,
+                    clave: document.getElementById("clave").value
+                });
+                window.location.href = "panel.html";
+            } catch (error) {
+                avisar(error.message, "error");
+            }
+        });
+    </script>
+</body>
+</html>
